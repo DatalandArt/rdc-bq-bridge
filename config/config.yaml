@@ -94,6 +94,13 @@ pipeline:
       id_parser_regex: "Visitors:(?P<ticket_id>[^:]+):.*"
       value_is_object: false
 
+    - name: "DeviceAssignment"
+      redis_source_type: "channel"
+      redis_pattern: "Visitors:*:AssignDevice"
+      target_table: "global_state_events"
+      id_parser_regex: "Visitors:(?P<ticket_id>[^:]+):.*"
+      value_is_object: false
+
 loader:
   batch_size_rows: 500
   batch_size_bytes: 1000000
@@ -270,3 +277,4 @@ logging:
   level: "INFO"
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
   file: "rdc_bridge.log"
+

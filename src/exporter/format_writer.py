@@ -237,31 +237,37 @@ class FormatWriter:
                 
                 if pd.notna(raw_value) and raw_value:
                     value_str = str(raw_value)
+                    state_key = row["state_key"]
                     
-                    # Try to parse as ISO timestamp first (matches encoding logic)
-                    try:
-                        # ISO 8601 timestamp format detection
-                        if 'T' in value_str and ('+' in value_str or 'Z' in value_str or value_str.count(':') >= 2):
-                            typed_value = datetime.fromisoformat(value_str.replace('Z', '+00:00'))
-                        else:
-                            # Not a timestamp, try next parsing method
-                            raise ValueError("Not an ISO timestamp")
-                    except (ValueError, TypeError):
-                        # Try JSON parsing (handles lists, dicts, booleans)
+                    # Special handling: Device ID fields should always be strings
+                    # This includes EmpaticaDeviceID, ScentDeviceID, BlueIoTDeviceID, etc.
+                    if "DeviceID" in state_key:
+                        typed_value = value_str
+                    else:
+                        # Try to parse as ISO timestamp first (matches encoding logic)
                         try:
-                            typed_value = json.loads(value_str)
-                        except (json.JSONDecodeError, ValueError):
-                            # Not valid JSON - try numeric types
+                            # ISO 8601 timestamp format detection
+                            if 'T' in value_str and ('+' in value_str or 'Z' in value_str or value_str.count(':') >= 2):
+                                typed_value = datetime.fromisoformat(value_str.replace('Z', '+00:00'))
+                            else:
+                                # Not a timestamp, try next parsing method
+                                raise ValueError("Not an ISO timestamp")
+                        except (ValueError, TypeError):
+                            # Try JSON parsing (handles lists, dicts, booleans)
                             try:
-                                # Check if it looks like an integer (no decimal point)
-                                if '.' not in value_str:
-                                    typed_value = int(value_str)
-                                else:
-                                    # Try as float
-                                    typed_value = float(value_str)
-                            except (ValueError, TypeError):
-                                # Keep as string
-                                typed_value = value_str
+                                typed_value = json.loads(value_str)
+                            except (json.JSONDecodeError, ValueError):
+                                # Not valid JSON - try numeric types
+                                try:
+                                    # Check if it looks like an integer (no decimal point)
+                                    if '.' not in value_str:
+                                        typed_value = int(value_str)
+                                    else:
+                                        # Try as float
+                                        typed_value = float(value_str)
+                                except (ValueError, TypeError):
+                                    # Keep as string
+                                    typed_value = value_str
                 else:
                     # NULL/NaN values become empty string
                     typed_value = ""

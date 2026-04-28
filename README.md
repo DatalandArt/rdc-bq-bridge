@@ -228,6 +228,9 @@ rdc-export list-tickets --start "2025-12-01" --end "2025-12-10"
 - **Avro**: Row-oriented format optimized for sequential Redis event replay. **Combines all tables into a single file ordered by timestamp** for accurate replay.
 - **JSONL**: Human-readable format for debugging. Creates separate files per table.
 
+**Important - Device ID Type Handling:**
+When exporting to Avro format, all fields ending in `DeviceID` (e.g., `ScentDeviceID`, `EmpaticaDeviceID`, `BlueIoTDeviceID`) are **always exported as strings** in the msgpack encoding, even if they contain numeric values like `"123"`. This ensures type consistency and prevents issues with Redis replay. Non-DeviceID numeric fields are parsed appropriately (e.g., `VisitCount: 42` becomes an integer).
+
 See [EXPORT_GUIDE.md](EXPORT_GUIDE.md) for complete export documentation.
 
 ### Redis Monitoring Utility
