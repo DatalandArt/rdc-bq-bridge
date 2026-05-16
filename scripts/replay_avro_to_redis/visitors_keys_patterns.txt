@@ -1,0 +1,14 @@
+Visitors:*:ETemp
+Visitors:*:EmpaticaDeviceID
+Visitors:*:EmpaticaDeviceIDShort
+Visitors:*:ScentDeviceID
+Visitors:*:Status
+Wearables:Scent:*:Firing
+Wearables:Scent:*:Status
+Wearables:Scent:DeviceIDs
+Wearables:Scent:TimelinedScent:GA
+Wearables:WatchDevices:*:IsAlive
+Wearables:WatchDevices:*:RoomCode
+Wearables:WatchDevices:*:Status
+Wearables:WatchDevices:*:Zone
+Wearables:WatchDevices:DeviceIDs

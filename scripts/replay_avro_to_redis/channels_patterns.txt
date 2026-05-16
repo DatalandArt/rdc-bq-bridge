@@ -1,0 +1,5 @@
+Visitors:*:AssignDevice
+Visitors:*:Status
+Visitors:Register
+Wearables:WatchDevices:*:BioSensors
+Wearables:WatchDevices:*:BlueIoTSensors
