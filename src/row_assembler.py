@@ -6,6 +6,7 @@ import msgpack
 from typing import Any, Dict
 
 from src.config import Config
+from . import metrics
 from .redis_ingestor import RedisDataEvent
 from .row_models import AssembledRow, RowInProgress
 from .row_processor import RowProcessor
@@ -120,6 +121,7 @@ class RowAssembler:
         # Send to loader
         await self.output_queue.put(assembled_row)
         self.rows_processed += 1
+        metrics.ROWS_INGESTED.labels(source=event.routing_rule.name).inc()
         
         # Periodic stats logging
         total_rows = self.rows_processed + self.rows_skipped

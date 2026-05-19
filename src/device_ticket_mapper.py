@@ -5,6 +5,8 @@ import logging
 import msgpack
 from typing import Dict, Optional
 
+from . import metrics
+
 logger = logging.getLogger(__name__)
 
 
@@ -205,6 +207,7 @@ class DeviceTicketMapper:
             self._device_to_ticket[device_id] = ticket_id
             self._ticket_to_device[ticket_id] = device_id
             self._total_updates += 1
+            metrics.DEVICE_MAPPING_UPDATES.inc()
 
             logger.debug("Mapping updated: %s ↔ %s", device_id, ticket_id)
 
@@ -230,6 +233,7 @@ class DeviceTicketMapper:
                     del self._ticket_to_device[ticket_id]
                 
                 self._total_removals += 1
+                metrics.DEVICE_MAPPING_REMOVALS.inc()
                 logger.debug("Mapping removed: %s ↔ %s", device_id, ticket_id)
             else:
                 logger.debug("No mapping found to remove for device: %s", device_id)

@@ -86,6 +86,14 @@ class PipelineConfig:
 
 
 @dataclass
+class MetricsConfig:
+    """Health/metrics HTTP endpoint configuration."""
+    enabled: bool = True
+    host: str = "127.0.0.1"
+    port: int = 9090
+
+
+@dataclass
 class Config:
     """Main configuration object."""
     gcp: GCPConfig
@@ -93,6 +101,11 @@ class Config:
     pipeline: PipelineConfig
     loader: LoaderConfig
     bigquery: Optional[BigQueryConfig] = None
+    metrics: MetricsConfig = None  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        if self.metrics is None:
+            self.metrics = MetricsConfig()
 
 
 class ConfigValidationError(Exception):
@@ -138,12 +151,15 @@ def _validate_and_parse_config(raw_config: Dict[str, Any]) -> Config:
         if 'bigquery' in raw_config:
             bigquery_config = _validate_bigquery_config(raw_config.get('bigquery', {}))
 
+        metrics_config = _validate_metrics_config(raw_config.get('metrics', {}))
+
         return Config(
             gcp=gcp_config,
             redis=redis_config,
             pipeline=pipeline_config,
             loader=loader_config,
-            bigquery=bigquery_config
+            bigquery=bigquery_config,
+            metrics=metrics_config,
         )
 
     except (KeyError, TypeError, ValueError) as e:
@@ -359,6 +375,25 @@ def _validate_table_config(table_name: str, table_config: Dict[str, Any]) -> Tab
         field_mappings=field_mappings,
         field_types=field_types
     )
+
+
+def _validate_metrics_config(metrics_config: Dict[str, Any]) -> MetricsConfig:
+    """Validate the optional metrics section."""
+    defaults = MetricsConfig()
+
+    enabled = metrics_config.get('enabled', defaults.enabled)
+    if not isinstance(enabled, bool):
+        raise ConfigValidationError("metrics.enabled must be a boolean")
+
+    host = metrics_config.get('host', defaults.host)
+    if not isinstance(host, str) or not host:
+        raise ConfigValidationError("metrics.host must be a non-empty string")
+
+    port = metrics_config.get('port', defaults.port)
+    if not isinstance(port, int) or not (1 <= port <= 65535):
+        raise ConfigValidationError("metrics.port must be an integer in [1, 65535]")
+
+    return MetricsConfig(enabled=enabled, host=host, port=port)
 
 
 def get_default_config_path() -> str:

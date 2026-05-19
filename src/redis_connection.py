@@ -7,6 +7,7 @@ from typing import Optional
 import redis.asyncio as redis
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
+from . import metrics
 from .config import Config
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,7 @@ class RedisConnectionManager:
                 logger.info("Redis connection established successfully with client-side tracking (RESP3)")
                 self._reconnect_delay = 1.0  # Reset delay on successful connection
                 self.redis_client = client
+                metrics.REDIS_CONNECTED.set(1)
                 return client
 
             except (redis.ConnectionError, redis.TimeoutError, redis.AuthenticationError) as e:
@@ -165,6 +167,7 @@ class RedisConnectionManager:
                 logger.warning(f"Error closing Redis client: {e}")
             self.redis_client = None
             self._invalidation_queue = None
+            metrics.REDIS_CONNECTED.set(0)
 
     def get_reconnect_delay(self, consecutive_errors: int) -> float:
         """Calculate reconnect delay based on consecutive errors."""

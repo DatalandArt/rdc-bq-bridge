@@ -106,6 +106,14 @@ loader:
   batch_size_bytes: 1000000
   commit_interval_seconds: 1.0
 
+# Health/metrics HTTP server for Prometheus scraping.
+# Bind 127.0.0.1 by default; set host to 0.0.0.0 to allow off-host scraping
+# (the endpoint is unauthenticated, so secure the port at the firewall).
+metrics:
+  enabled: true
+  host: "0.0.0.0"
+  port: 9090
+
 bigquery:
   project_id: "dataland-backend"
   dataset_id: "rdc_bridge"

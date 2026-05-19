@@ -10,13 +10,17 @@ import sys
 from logging.handlers import QueueHandler, QueueListener
 from typing import Optional
 
+from . import metrics
 from .bq_loader import BigQueryLoaderManager
 from .bq_schema_utils import initialize_schemas
 from .bq_setup import BigQuerySetup, setup_bigquery_infrastructure, verify_bigquery_infrastructure
 from .config import Config, ConfigValidationError, get_default_config_path, load_config
 from .device_ticket_mapper import DeviceTicketMapper
+from .http_server import HttpServer
 from .redis_ingestor import RedisDataEvent, RedisIngestor
 from .row_assembler import AssembledRow, RowAssembler
+
+__version__ = "0.1.0"
 
 
 def _configure_logging() -> None:
@@ -85,6 +89,10 @@ class RDCBigQueryBridge:
         """Start all components of the bridge."""
         logger.info("Starting RDC-BigQuery Bridge...")
 
+        # Initialize metrics that should have known values from t=0
+        metrics.REDIS_CONNECTED.set(0)
+        metrics.BUILD_INFO.labels(version=__version__).set(1)
+
         # Setup signal handlers for graceful shutdown
         self._setup_signal_handlers()
 
@@ -136,34 +144,63 @@ class RDCBigQueryBridge:
             )
             tasks.append(monitor_task)
 
+            # Start metrics gauge-refresh task (non-critical)
+            metrics_tick_task = asyncio.create_task(
+                self._refresh_metric_gauges(),
+                name="metrics_tick"
+            )
+            tasks.append(metrics_tick_task)
+
+            # Start HTTP server for /healthz, /readyz, /metrics (non-critical)
+            if self.config.metrics.enabled:
+                self.http_server = HttpServer(
+                    host=self.config.metrics.host,
+                    port=self.config.metrics.port,
+                    redis_ingestor=self.redis_ingestor,
+                    row_assembler=self.row_assembler,
+                    bq_loader_manager=self.bq_loader_manager,
+                    device_mapper=self.device_mapper,
+                )
+                http_task = asyncio.create_task(
+                    self.http_server.run(),
+                    name="http_server"
+                )
+                tasks.append(http_task)
+            else:
+                logger.info("Metrics HTTP server disabled via config")
+
             logger.info("All components started successfully")
 
             # Wait for shutdown signal or any task to fail (not just complete)
             # We use a loop to continuously check task status
+            critical_tasks = {"redis_ingestor", "row_assembler", "bq_loader_manager"}
+            reported_done: set = set()
             while not self._shutdown_event.is_set():
                 # Check if any tasks have failed
                 for task in tasks:
-                    if task.done():
-                        # Task completed - check if it was due to an error
-                        try:
-                            # This will raise if the task had an exception
-                            task.result()
-                            # If we get here, the task completed normally (which shouldn't happen)
-                            logger.warning(f"Task {task.get_name()} completed unexpectedly without error")
-                            # Don't shut down for normal completion - these tasks should run forever
-                            # Only shut down if it's a critical component
-                            if task.get_name() in ["redis_ingestor", "row_assembler", "bq_loader_manager"]:
-                                logger.error(f"Critical task {task.get_name()} stopped unexpectedly, initiating shutdown")
-                                self._shutdown_event.set()
-                                break
-                        except asyncio.CancelledError:
-                            # Task was cancelled - this is expected during shutdown
-                            logger.info(f"Task {task.get_name()} was cancelled")
-                        except Exception as e:
-                            # Task failed with an error
-                            logger.error(f"Task {task.get_name()} failed with error: {e}")
+                    if not task.done() or task.get_name() in reported_done:
+                        continue
+                    reported_done.add(task.get_name())
+                    is_critical = task.get_name() in critical_tasks
+                    try:
+                        # This will raise if the task had an exception
+                        task.result()
+                        # If we get here, the task completed normally (which shouldn't happen)
+                        logger.warning(f"Task {task.get_name()} completed unexpectedly without error")
+                        if is_critical:
+                            logger.error(f"Critical task {task.get_name()} stopped unexpectedly, initiating shutdown")
                             self._shutdown_event.set()
                             break
+                    except asyncio.CancelledError:
+                        # Task was cancelled - this is expected during shutdown
+                        logger.info(f"Task {task.get_name()} was cancelled")
+                    except Exception as e:
+                        if is_critical:
+                            logger.error(f"Critical task {task.get_name()} failed with error: {e}")
+                            self._shutdown_event.set()
+                            break
+                        else:
+                            logger.error(f"Non-critical task {task.get_name()} failed with error: {e}; bridge continues")
 
                 # Wait a bit before checking again
                 try:
@@ -229,6 +266,39 @@ class RDCBigQueryBridge:
         """Initiate graceful shutdown."""
         logger.info("Initiating graceful shutdown...")
         self._shutdown_event.set()
+
+    async def _refresh_metric_gauges(self) -> None:
+        """Refresh Prometheus gauges from live component state every second.
+
+        Counters/histograms are bumped inline at the originating call sites;
+        gauges are sampled here to avoid hot-path overhead on every event.
+        """
+        while not self._shutdown_event.is_set():
+            try:
+                metrics.QUEUE_DEPTH.labels(queue="redis_to_assembler").set(
+                    self.redis_to_assembler_queue.qsize()
+                )
+                metrics.QUEUE_DEPTH.labels(queue="assembler_to_loader").set(
+                    self.assembler_to_loader_queue.qsize()
+                )
+                for table_name, table_queue in self.bq_loader_manager.table_queues.items():
+                    metrics.QUEUE_DEPTH.labels(queue=f"loader_table_{table_name}").set(
+                        table_queue.qsize()
+                    )
+                for table_name, loader in self.bq_loader_manager.loaders.items():
+                    metrics.LOADER_RUNNING.labels(table=table_name).set(
+                        1 if loader._running else 0
+                    )
+                metrics.DEVICE_MAPPINGS_ACTIVE.set(
+                    len(self.device_mapper._device_to_ticket)
+                )
+            except Exception as e:
+                logger.warning(f"Error refreshing metric gauges: {e}")
+            try:
+                await asyncio.wait_for(self._shutdown_event.wait(), timeout=1.0)
+                break
+            except asyncio.TimeoutError:
+                continue
 
     async def _monitor_components(self) -> None:
         """Monitor component health and log statistics."""

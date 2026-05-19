@@ -23,6 +23,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 
 from .bq_schema_utils import create_proto_descriptor, create_proto_message
 from .config import Config
+from . import metrics
 from .row_assembler import AssembledRow
 
 logger = logging.getLogger(__name__)
@@ -246,6 +247,7 @@ class BigQueryLoader:
                 logger.error(
                     f"Error processing row in {self.table_name} loader: {e}", exc_info=True)
                 self.errors_count += 1
+                metrics.COMMIT_ERRORS.labels(table=self.table_name).inc()
                 continue
 
         logger.info(
@@ -288,7 +290,11 @@ class BigQueryLoader:
             return
 
         batch_size = len(self.current_batch)
-        
+
+        with metrics.COMMIT_LATENCY.labels(table=self.table_name).time():
+            await self._commit_batch_inner(batch_size)
+
+    async def _commit_batch_inner(self, batch_size: int) -> None:
         # In dry-run mode, just log and skip the actual commit
         if self.dry_run:
             logger.info(
@@ -297,6 +303,9 @@ class BigQueryLoader:
             self.rows_processed += batch_size
             self.batches_committed += 1
             self.last_commit_time = time.time()
+            metrics.ROWS_COMMITTED.labels(table=self.table_name).inc(batch_size)
+            metrics.BATCHES_COMMITTED.labels(table=self.table_name).inc()
+            metrics.LAST_COMMIT_TIMESTAMP.labels(table=self.table_name).set(self.last_commit_time)
             # Clear the batch
             self.current_batch.clear()
             self.current_batch_size = 0
@@ -396,6 +405,7 @@ class BigQueryLoader:
                                     logger.error(f"  Row {i}: {row_error}")
 
                             self.errors_count += 1
+                            metrics.COMMIT_ERRORS.labels(table=self.table_name).inc()
                             raise Exception(
                                 f"BigQuery append error: {append_result.error}")
                         else:
@@ -446,6 +456,9 @@ class BigQueryLoader:
             self.rows_processed += batch_size
             self.batches_committed += 1
             self.last_commit_time = time.time()
+            metrics.ROWS_COMMITTED.labels(table=self.table_name).inc(batch_size)
+            metrics.BATCHES_COMMITTED.labels(table=self.table_name).inc()
+            metrics.LAST_COMMIT_TIMESTAMP.labels(table=self.table_name).set(self.last_commit_time)
 
             # Clear the batch
             self.current_batch.clear()
@@ -457,6 +470,7 @@ class BigQueryLoader:
             logger.error(f"Failed to commit batch: {e}")
             logger.exception(e)
             self.errors_count += 1
+            metrics.COMMIT_ERRORS.labels(table=self.table_name).inc()
             raise
 
     async def _create_proto_rows(self, rows: List[AssembledRow]) -> ProtoRows:

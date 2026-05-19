@@ -286,6 +286,29 @@ The application provides built-in monitoring and logging:
 
 Logs are written to both stdout and `rdc_bridge.log`.
 
+### Health & Metrics Endpoints
+
+The bridge exposes an HTTP server (default `127.0.0.1:9090`) with three endpoints for Prometheus/Grafana:
+
+| Path        | Purpose                                                                 |
+|-------------|-------------------------------------------------------------------------|
+| `/healthz`  | Liveness — 200 while the event loop is responsive                       |
+| `/readyz`   | Readiness — 200 only if Redis is connected and all loaders are running  |
+| `/metrics`  | Prometheus exposition format (rows/batches committed, commit latency histogram, queue depths, device mappings, error counters, etc.) |
+
+Configure under `metrics:` in `config/config.yaml`:
+
+```yaml
+metrics:
+  enabled: true
+  host: "127.0.0.1"   # set to 0.0.0.0 to allow off-host scraping
+  port: 9090
+```
+
+The endpoint is unauthenticated, so the default bind is localhost — run a Prometheus or Grafana Alloy agent on the same host. To scrape from another host, set `host: "0.0.0.0"` and restrict the port at the firewall.
+
+A sample scrape config (`monitoring/prometheus.yml`) and starter Grafana dashboard (`monitoring/grafana-dashboard.json`) are included.
+
 ## Performance Tuning
 
 ### Batch Configuration
